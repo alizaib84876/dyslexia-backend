@@ -38,8 +38,11 @@ You should see (venv) at the start of your terminal line.
 ## Step 3 — Install All Dependencies
 ```bash
 pip install fastapi uvicorn sqlalchemy psycopg2-binary alembic \
-            python-dotenv python-Levenshtein pytest httpx pydantic groq
+            python-dotenv python-Levenshtein pytest httpx pydantic groq \
+            transformers torch Pillow python-multipart
 ```
+
+> **Note:** `transformers` and `torch` are required for the handwriting OCR feature (TrOCR Large model). The first time a handwriting image is submitted the model (~2.2 GB) will be downloaded automatically from HuggingFace and cached on disk. This only happens once.
 
 ---
 
@@ -110,6 +113,8 @@ INFO:     Uvicorn running on http://127.0.0.1:8000
 INFO:     Application startup complete.
 ```
 
+> **Note on handwriting:** The TrOCR Large OCR model is loaded on the first handwriting request (not at startup). Expect a 15–20 second delay on that first request while the model loads into memory. Every subsequent request is fast.
+
 ---
 
 ## Step 8 — Open API Docs
@@ -161,22 +166,35 @@ uvicorn app.main:app --reload
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | /sessions/ | Start a session |
-| POST | /sessions/{id}/submit | Submit answer and get score |
+| POST | /sessions/{id}/submit | Submit typed answer and get score |
+| POST | /sessions/{id}/submit-handwriting | Submit handwriting image and get score |
 
 ---
 
 ## Integration Flow
 
-This is the exact order your frontend should call the API:
+### Typed Exercise Flow
 
 1. Create a student once and save the student_id
 2. Call GET /exercises/next?student_id=X to get an exercise
 3. Show the exercise content field to the student
-4. When student submits, call POST /sessions/ to start a session
-5. Call POST /sessions/{id}/submit with the student response
+4. When student submits, call POST /sessions/ to start a session (set `is_handwriting: false`)
+5. Call POST /sessions/{id}/submit with the student's typed response
 6. Display the score and feedback returned
 7. Repeat from step 2 for the next exercise
 8. Call GET /students/{id}/stats anytime for dashboard data
+
+### Handwriting Exercise Flow
+
+1. Create a student once and save the student_id
+2. Call GET /exercises/next?student_id=X to get an exercise
+3. Show the exercise content field to the student
+4. When student submits, call POST /sessions/ to start a session — set `is_handwriting: true`
+5. Capture a photo or scan of the student's handwriting as a JPG or PNG file
+6. Send it to POST /sessions/{id}/submit-handwriting as a multipart form upload (field name: `file`)
+7. The backend runs OCR automatically, scores the result, and returns the same rich response plus `ocr_text` and `ocr_confidence`
+8. Display the score, feedback, and optionally `ocr_text` so the student can see what the app read
+9. Repeat from step 2 for the next exercise
 
 ---
 
@@ -241,7 +259,7 @@ POST /sessions/2164f8e8-.../submit
   "student_response": "kat",
   "duration_seconds": 15
 }
-
+    
 Response:
 {
   "session_id": "2164f8e8-...",
@@ -260,6 +278,34 @@ Response:
   "words_updated": ["cat"]
 }
 ```
+
+### Submit Handwriting Image
+```
+POST /sessions/2164f8e8-.../submit-handwriting
+Content-Type: multipart/form-data
+
+Fields:
+  file             — JPG or PNG image of the student's handwriting (required)
+  duration_seconds — how long the student took in seconds (optional, integer)
+
+Response:
+{
+  "session_id": "2164f8e8-...",
+  "score": 1.0,
+  "char_errors": [],
+  "phonetic_score": 1.0,
+  "feedback": "Excellent work! You spelled the word perfectly. Keep it up!",
+  "new_difficulty_level": 2,
+  "words_updated": ["today"],
+  "ocr_text": "today",
+  "ocr_confidence": 0.781
+}
+```
+
+> `ocr_text` is the word the OCR engine read from the image.  
+> `ocr_confidence` is a 0–1 value from the model (for reference only — scoring uses the OCR text directly).
+
+---
 
 ### Get Student Stats
 ```
@@ -289,10 +335,19 @@ Response:
 
 ## Notes for Frontend Integration
 
-- The content field in the exercise is what you show to the student
-- The expected field is the correct answer — do not show this to the student
-- score is between 0.0 and 1.0 — multiply by 100 for percentage
-- feedback is a ready-to-display string — show it directly to the student
-- new_difficulty_level tells you the student's current level after this session
-- For handwriting exercises set is_handwriting to true in the session and pass ocr_confidence in the submit
-- Call GET /exercises/generate?student_id=X when you want fresh AI-generated exercises for a student
+- The `content` field in the exercise is what you show to the student
+- The `expected` field is the correct answer — do not show this to the student
+- `score` is between 0.0 and 1.0 — multiply by 100 for percentage
+- `feedback` is a ready-to-display string — show it directly to the student
+- `new_difficulty_level` tells you the student's current level after this session
+- Call `GET /exercises/generate?student_id=X` when you want fresh AI-generated exercises for a student
+
+### Handwriting-specific notes
+
+- Set `is_handwriting: true` when calling `POST /sessions/` for a handwriting exercise
+- Use `POST /sessions/{id}/submit-handwriting` (not `/submit`) for handwriting exercises — it accepts an image, not text
+- Send the image as a `multipart/form-data` upload with the field name `file` (JPG or PNG only)
+- The backend runs TrOCR OCR automatically — you never send the transcribed text, only the raw image
+- `ocr_text` in the response shows what the OCR engine read — you can display this to the student so they know what was recognised
+- The first handwriting submission after server start will be slower (~15–20 s) as the OCR model loads; all subsequent submissions are fast
+- Image quality tips for best OCR accuracy: good lighting, dark ink on white/light paper, write on a single line, keep the image reasonably cropped

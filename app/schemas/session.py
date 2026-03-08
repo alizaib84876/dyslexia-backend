@@ -37,3 +37,9 @@ class SubmitResponse(BaseModel):
     feedback: str
     new_difficulty_level: int
     words_updated: List[str]
+
+
+class HandwritingSubmitResponse(SubmitResponse):
+    """Same as SubmitResponse but includes OCR output."""
+    ocr_text: str
+    ocr_confidence: float

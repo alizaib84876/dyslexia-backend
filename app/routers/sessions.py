@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.orm import Session as DBSession
 from datetime import datetime, timezone
 from app.database import get_db
@@ -6,11 +6,12 @@ from app.models.session import Session
 from app.models.exercise import Exercise
 from app.models.student import Student
 from app.models.word_mastery import WordMastery
-from app.schemas.session import SessionCreate, SessionSubmit, SubmitResponse
+from app.schemas.session import SessionCreate, SessionSubmit, SubmitResponse, HandwritingSubmitResponse
 from app.services.evaluator import evaluate_response
 import uuid
 from app.services.llm import generate_feedback as llm_feedback
 from app.models.exercise import Exercise as ExerciseModel
+from app.services.ocr import run_ocr
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -158,4 +159,105 @@ def submit_session(
         feedback          = feedback,
         new_difficulty_level = new_level,
         words_updated     = target_words
+    )
+
+
+@router.post("/{session_id}/submit-handwriting", response_model=HandwritingSubmitResponse)
+async def submit_handwriting(
+    session_id: uuid.UUID,
+    file:       UploadFile = File(...),
+    duration_seconds: int | None = Form(None),
+    db:         DBSession  = Depends(get_db)
+):
+    """
+    Submit a handwriting exercise by uploading a photo (jpg/png).
+
+    1. Validates image type
+    2. Runs Tesseract OCR → extracted text + confidence
+    3. Passes OCR output to the same evaluate_response() pipeline
+    4. Identical orchestration as /submit (word mastery, difficulty, LLM feedback)
+    5. Returns SubmitResponse + ocr_text + ocr_confidence
+    """
+    # ── Validate image format ────────────────────────────────────────
+    allowed = {"image/jpeg", "image/png"}
+    if file.content_type not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported image type '{file.content_type}'. Must be jpg or png."
+        )
+
+    # ── Load session ─────────────────────────────────────────────────
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.score is not None:
+        raise HTTPException(status_code=400, detail="Session already submitted")
+
+    # ── Run OCR ──────────────────────────────────────────────────────
+    image_bytes = await file.read()
+    ocr_result  = run_ocr(image_bytes)
+    ocr_text       = ocr_result["text"]
+    ocr_confidence = ocr_result["confidence"]
+
+    if not ocr_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="OCR could not extract any text from the image. "
+                   "Please retake the photo with better lighting and clearer writing."
+        )
+
+    # ── 1. Evaluate (same function as typing) ────────────────────────
+    result = evaluate_response(
+        expected       = session.expected,
+        actual         = ocr_text,
+        is_handwriting = True,
+        ocr_confidence = ocr_confidence
+    )
+
+    # ── 2. Save session result ───────────────────────────────────────
+    session.student_response = ocr_text
+    session.submitted_at     = datetime.now(timezone.utc)
+    session.duration_seconds = duration_seconds
+    session.score            = result["score"]
+    session.char_errors      = result["char_errors"]
+    session.phonetic_score   = result["phonetic_score"]
+    session.is_handwriting   = True
+    session.ocr_confidence   = ocr_confidence
+    db.commit()
+
+    # ── 3. Update student stats ──────────────────────────────────────
+    student = db.query(Student).filter(Student.id == session.student_id).first()
+    student.total_sessions += 1
+    student.last_active     = datetime.now(timezone.utc)
+    db.commit()
+
+    # ── 4. Update word mastery ───────────────────────────────────────
+    exercise     = db.query(Exercise).filter(Exercise.id == session.exercise_id).first()
+    target_words = exercise.target_words or []
+    was_correct  = result["score"] >= 0.75
+    update_word_mastery(db, session.student_id, target_words, was_correct)
+
+    # ── 5. Adjust difficulty ─────────────────────────────────────────
+    new_level = update_difficulty(db, student)
+
+    # ── 6. LLM feedback ─────────────────────────────────────────────
+    age = student.age or 10
+    feedback = llm_feedback(
+        score         = result["score"],
+        char_errors   = result["char_errors"],
+        target_words  = target_words,
+        student_age   = age,
+        exercise_type = "handwriting"
+    )
+
+    return HandwritingSubmitResponse(
+        session_id           = session.id,
+        score                = result["score"],
+        char_errors          = result["char_errors"],
+        phonetic_score       = result["phonetic_score"],
+        feedback             = feedback,
+        new_difficulty_level = new_level,
+        words_updated        = target_words,
+        ocr_text             = ocr_text,
+        ocr_confidence       = ocr_confidence
     )

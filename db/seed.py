@@ -163,7 +163,7 @@ def seed():
 
         # ── HANDWRITING ──────────────────────────────────────────────────
         Exercise(type="handwriting", difficulty=1, age_group="5-7",
-            content="Write this sentence: The cat sat on the mat",
+            content="Write this sentence: The cat sat on the mat",  
             expected="the cat sat on the mat",
             target_words=["cat", "sat", "mat"],
             source="pre_stored"),
