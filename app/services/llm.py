@@ -82,10 +82,12 @@ def generate_exercises(
     weak_words: list,
     difficulty: int,
     student_age: int,
-    count: int = 5
+    count: int = 5,
+    force_type: str = None
 ) -> list:
     """
     Generate new exercises targeting weak words using Groq.
+    force_type: if provided, ALL generated exercises will be of this type.
     Returns a list of exercise dicts ready to insert into the database.
     """
     if not weak_words:
@@ -93,7 +95,33 @@ def generate_exercises(
 
     words_str = ", ".join(weak_words[:8])
 
-    prompt = f"""You are creating spelling exercises for a child aged {student_age} with dyslexia.
+    # ── Type-specific prompt when a single type is requested ─────────────
+    if force_type:
+        type_rules = {
+            "word_typing":     'content = "Type this word: WORD", expected = the word in lowercase. WORD must be a full word, never a sentence.',
+            "sentence_typing": 'content = "Type this sentence: SENTENCE", expected = sentence in lowercase.',
+            "handwriting":     'content = "Write this word: WORD" or "Write this sentence: SENTENCE" (max 5 words), expected = word or sentence in lowercase.',
+            "tracing":         'content = "Trace this letter: LETTER" (single letter) or "Trace this word: WORD" (single word, no sentence), expected = letter or word in lowercase.',
+        }
+        rule = type_rules.get(force_type, "Follow the standard rules for this type.")
+        prompt = f"""You are creating spelling exercises for a child aged {student_age} with dyslexia.
+Difficulty level is {difficulty} out of 10.
+These are words or letters the child struggles with: {words_str}
+
+Generate {count} exercises ALL of type \"{force_type}\". Return ONLY a JSON array, no explanation, no markdown, no code blocks.
+Each item must have exactly these fields:
+- type: must be "{force_type}" for every item
+- content: the instruction shown to the student
+- expected: the exact correct answer in lowercase
+- target_words: array of focus words/letters from the struggle list used in this exercise
+
+Rule for this type: {rule}
+All expected values must be lowercase.
+
+Example item:
+{{"type": "{force_type}", "content": "...", "expected": "...", "target_words": [...]}}"""
+    else:
+        prompt = f"""You are creating spelling exercises for a child aged {student_age} with dyslexia.
 Difficulty level is {difficulty} out of 10.
 These are words the child struggles with: {words_str}
 

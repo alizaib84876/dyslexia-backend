@@ -157,9 +157,9 @@ uvicorn app.main:app --reload
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /exercises/ | List all exercises |
-| GET | /exercises/next?student_id=X | Get next adaptive exercise |
+| GET | /exercises/next?student_id=X | Get next adaptive exercise (add `&type=X` to filter by type) |
 | GET | /exercises/{id} | Get single exercise |
-| POST | /exercises/generate?student_id=X | Generate new exercises via AI |
+| POST | /exercises/generate?student_id=X | Generate new AI exercises (add `&type=X` to force a single type) |
 
 ### Sessions
 
@@ -189,6 +189,58 @@ Both `word_typing` and `sentence_typing` use the same typed submit endpoint — 
 Only `tracing` uses the `submit-tracing` endpoint — **the frontend computes the score and sends it; the backend does not evaluate strokes.**
 
 All four types go through the same adaptive selection, word mastery tracking, difficulty adjustment, and LLM feedback pipeline.
+
+---
+
+## Adaptive Exercise Selection
+
+Every call to `GET /exercises/next` runs a weighted random selection. The weights depend on whether a `?type=` filter is provided and whether the student has repeated letter-confusion errors.
+
+### Without `?type=` filter (default — mixed types)
+
+The backend scans the student's last 20 sessions for character errors classified as `reversal` or `substitution` (e.g. confusing `b` and `d`). Any letter that appears 2 or more times in those errors is classified as a **confused letter**.
+
+**If confused letters are found:**
+
+| Pool | Weight | What's in it |
+|------|--------|--------------|
+| Struggle pool | 50% | Exercises whose `target_words` contain words the student scores below 70% on |
+| Letter-tracing pool | 20% | Tracing exercises whose `expected` value is one of the confused letters |
+| Level pool | 20% | Any exercise at the student's current difficulty level |
+| Stretch pool | 10% | Exercises one level above the student's current level |
+
+**If no confused letters are found:**
+
+| Pool | Weight | What's in it |
+|------|--------|--------------|
+| Struggle pool | 60% | Exercises whose `target_words` contain words the student scores below 70% on |
+| Level pool | 30% | Any exercise at the student's current difficulty level |
+| Stretch pool | 10% | Exercises one level above the student's current level |
+
+### With `?type=X` filter
+
+All pools are restricted to exercises of that type only. The confused-letter cross-type injection is skipped (since you already specified the type). Selection uses the 60%/30%/10% split within that type.
+
+Supported type values: `word_typing`, `sentence_typing`, `handwriting`, `tracing`
+
+**Example calls:**
+```
+GET /exercises/next?student_id=b01c56ba-...              # mixed adaptive
+GET /exercises/next?student_id=b01c56ba-...&type=tracing # tracing only
+GET /exercises/next?student_id=b01c56ba-...&type=handwriting # handwriting only
+```
+
+### AI exercise generation with type filter
+
+`POST /exercises/generate?student_id=X` accepts the same `&type=X` parameter. When provided, the LLM is instructed to generate **only** that exercise type with strict rules (e.g. tracing = single letter or word only, handwriting = max 5 words). Without the parameter, the LLM generates a balanced mix of all four types.
+
+**Example calls:**
+```
+POST /exercises/generate?student_id=b01c56ba-...              # mixed types
+POST /exercises/generate?student_id=b01c56ba-...&type=tracing # tracing exercises only
+```
+
+> **Partner integration tip:** In screen flows where the student has already chosen an activity type (e.g. they tapped a "Tracing" button), always pass `&type=tracing` to both endpoints so they only receive exercises of that type. In the main adaptive flow where the app chooses for them, omit `?type=` so the backend can automatically inject letter-tracing exercises when confusion patterns are detected.
 
 ### How handwriting exercises are created
 
@@ -279,7 +331,13 @@ Response:
 ### Get Next Exercise
 ```
 GET /exercises/next?student_id=b01c56ba-...
+```
+Or filter to one type:
+```
+GET /exercises/next?student_id=b01c56ba-...&type=tracing
+```
 
+```
 Response (typed example):
 {
   "id": "df90b771-...",
@@ -287,6 +345,18 @@ Response (typed example):
   "content": "Type this word: cat",
   "expected": "cat",
   "target_words": ["cat"],
+  "difficulty": 1,
+  "age_group": "5-7",
+  "source": "pre_stored"
+}
+
+Response (tracing example — auto-injected when student confuses b/d):
+{
+  "id": "c3b9f012-...",
+  "type": "tracing",
+  "content": "Trace this letter: b",
+  "expected": "b",
+  "target_words": ["b"],
   "difficulty": 1,
   "age_group": "5-7",
   "source": "pre_stored"

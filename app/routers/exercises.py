@@ -45,6 +45,34 @@ def get_weak_words(db, student_id) -> set:
     return {wm.word.lower() for wm in weak}
 
 
+def get_confused_letters(db, student_id) -> set:
+    """
+    Scan recent session char_errors for reversal/substitution errors.
+    Returns a set of letters the student is consistently confusing
+    so the adaptive engine can recommend tracing exercises for them.
+    """
+    from app.models.session import Session as SessionModel
+    recent_sessions = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.student_id == student_id,
+            SessionModel.char_errors.isnot(None)
+        )
+        .order_by(SessionModel.submitted_at.desc())
+        .limit(20)
+        .all()
+    )
+    letter_error_counts = {}
+    for s in recent_sessions:
+        for err in (s.char_errors or []):
+            if err.get("error_type") in ("reversal", "substitution"):
+                for ch in [err.get("expected_char", ""), err.get("actual_char", "")]:
+                    if ch and len(ch) == 1 and ch.isalpha():
+                        letter_error_counts[ch] = letter_error_counts.get(ch, 0) + 1
+    # only letters that appeared in errors 2+ times are considered confused
+    return {letter for letter, count in letter_error_counts.items() if count >= 2}
+
+
 def get_recent_exercise_ids(db, student_id, n=5) -> set:
     """Return IDs of the last n exercises this student did."""
     from app.models.session import Session as SessionModel
@@ -79,42 +107,81 @@ def weighted_choice(pools: list):
 
 
 @router.get("/next", response_model=ExerciseResponse)
-def get_next_exercise(student_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_next_exercise(
+    student_id: uuid.UUID,
+    type:       Optional[str] = Query(None, description="Filter by exercise type: word_typing, sentence_typing, handwriting, tracing"),
+    db:         Session       = Depends(get_db)
+):
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    level        = student.difficulty_level
-    weak_words   = get_weak_words(db, student_id)
-    recent_ids   = get_recent_exercise_ids(db, student_id, n=5)
+    level          = student.difficulty_level
+    weak_words     = get_weak_words(db, student_id)
+    recent_ids     = get_recent_exercise_ids(db, student_id, n=5)
+    confused_letters = get_confused_letters(db, student_id)
 
-    all_at_level = db.query(Exercise).filter(
-        Exercise.difficulty == level
-    ).all()
+    # ── Base query filtered by type if provided ───────────────────────
+    base_query = db.query(Exercise).filter(Exercise.difficulty == level)
+    if type:
+        base_query = base_query.filter(Exercise.type == type)
 
-    # exercises not seen recently
+    all_at_level   = base_query.all()
     fresh_at_level = [e for e in all_at_level if e.id not in recent_ids]
 
-    # exercises that contain at least one weak word
+    # ── Struggle pool — exercises containing weak words ───────────────
     struggle_pool = [
         e for e in fresh_at_level
         if any(w in weak_words for w in (e.target_words or []))
     ]
 
-    # exercises at current level with no weak word overlap (consolidation)
+    # ── Cross-type letter tracing pool ───────────────────────────────
+    # When the student is NOT explicitly requesting a type, inject tracing
+    # exercises for letters they confuse across all exercise types.
+    # This means poor performance in typing → tracing exercises suggested.
+    letter_tracing_pool = []
+    if not type and confused_letters:
+        tracing_candidates = (
+            db.query(Exercise)
+            .filter(
+                Exercise.type == "tracing",
+                Exercise.difficulty <= level + 1
+            )
+            .all()
+        )
+        letter_tracing_pool = [
+            e for e in tracing_candidates
+            if e.id not in recent_ids
+            and any(ch in confused_letters for ch in (e.expected or ""))
+        ]
+
+    # ── Consolidation pool — current level, no weak word overlap ──────
     level_pool = [e for e in fresh_at_level if e not in struggle_pool]
 
-    # stretch — one level above
-    stretch_pool = db.query(Exercise).filter(
-        Exercise.difficulty == level + 1
-    ).all()
+    # ── Stretch pool — one level above ────────────────────────────────
+    stretch_query = db.query(Exercise).filter(Exercise.difficulty == level + 1)
+    if type:
+        stretch_query = stretch_query.filter(Exercise.type == type)
+    stretch_pool = stretch_query.all()
 
-    # 60% struggle, 30% current level, 10% stretch
-    chosen = weighted_choice([
-        (struggle_pool, 0.6),   
-        (level_pool,    0.3),
-        (stretch_pool,  0.1),
-    ])
+    # ── Weighted selection ─────────────────────────────────────────────
+    # If confused letters found and no explicit type requested:
+    #   50% struggle words, 20% letter tracing, 20% current level, 10% stretch
+    # Otherwise:
+    #   60% struggle words, 30% current level, 10% stretch
+    if letter_tracing_pool and not type:
+        chosen = weighted_choice([
+            (struggle_pool,       0.50),
+            (letter_tracing_pool, 0.20),
+            (level_pool,          0.20),
+            (stretch_pool,        0.10),
+        ])
+    else:
+        chosen = weighted_choice([
+            (struggle_pool, 0.60),
+            (level_pool,    0.30),
+            (stretch_pool,  0.10),
+        ])
 
     # fallback — if all pools empty just return anything at level
     if not chosen:
@@ -137,16 +204,28 @@ def get_exercise(exercise_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/generate")
-def generate_for_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
+def generate_for_student(
+    student_id: uuid.UUID,
+    type:       Optional[str] = Query(None, description="Restrict generated exercises to a specific type: word_typing, sentence_typing, handwriting, tracing"),
+    db:         Session       = Depends(get_db)
+):
     """
-    Generate new exercises using Gemini targeting this student's weak words.
-    Call this when the exercise bank is running low for a student.
+    Generate new exercises using the LLM targeting this student's weak words.
+    Pass ?type=tracing (or any other type) to generate only that type.
+    Omit type to generate a natural mix of all types.
     """
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
     weak_words = list(get_weak_words(db, student_id))
+
+    # For tracing with no weak words, fall back to confused letters
+    if not weak_words and type == "tracing":
+        confused = list(get_confused_letters(db, student_id))
+        if confused:
+            weak_words = confused
+
     if not weak_words:
         return {"message": "No weak words found. Student is doing well!", "generated": 0}
 
@@ -154,7 +233,8 @@ def generate_for_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
         weak_words  = weak_words,
         difficulty  = student.difficulty_level,
         student_age = student.age or 10,
-        count       = 5
+        count       = 5,
+        force_type  = type
     )
 
     if not exercises:
