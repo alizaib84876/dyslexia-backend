@@ -107,8 +107,9 @@ Each item must have exactly these fields:
 Rules:
 - For word_typing: content = "Type this word: WORD", expected = the word in lowercase
 - For sentence_typing: content = "Type this sentence: SENTENCE", expected = sentence in lowercase
-- For handwriting: content = "Write this sentence: SENTENCE", expected = sentence in lowercase
+- For handwriting: content = "Write this sentence: SENTENCE" or "Write this word: WORD", expected = sentence/word in lowercase
 - Sentences must be simple, short, and use the struggle words naturally
+- IMPORTANT: handwriting sentences must be at most 5 words long — they will be written by hand on a single line of paper and OCR-scanned as one line
 - Mix all three types roughly equally (about 1-2 of each per 5 exercises)
 - All expected values must be lowercase
 
@@ -116,7 +117,7 @@ Example format:
 [
   {{"type": "word_typing", "content": "Type this word: friend", "expected": "friend", "target_words": ["friend"]}},
   {{"type": "sentence_typing", "content": "Type this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}},
-  {{"type": "handwriting", "content": "Write this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}}
+  {{"type": "handwriting", "content": "Write this sentence: my friend is here", "expected": "my friend is here", "target_words": ["friend"]}}
 ]"""
 
     try:

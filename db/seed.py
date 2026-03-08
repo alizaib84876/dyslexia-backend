@@ -205,15 +205,21 @@ def seed():
 
         # ── HANDWRITING | difficulty 4 ───────────────────────────────────
         Exercise(type="handwriting", difficulty=4, age_group="8-10",
-            content="Write this sentence: She ran fast enough to win the race",
-            expected="she ran fast enough to win the race",
-            target_words=["enough", "race"],
+            content="Write this word: enough",
+            expected="enough",
+            target_words=["enough"],
             source="pre_stored"),
 
         Exercise(type="handwriting", difficulty=4, age_group="8-10",
-            content="Write this sentence: He went through the door because he was late",
-            expected="he went through the door because he was late",
-            target_words=["through", "because"],
+            content="Write this sentence: She ran through the park",
+            expected="she ran through the park",
+            target_words=["through"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=4, age_group="8-10",
+            content="Write this sentence: I stayed home because it rained",
+            expected="i stayed home because it rained",
+            target_words=["because"],
             source="pre_stored"),
 
         # ── HANDWRITING | difficulty 5 ───────────────────────────────────
@@ -231,9 +237,15 @@ def seed():
 
         # ── HANDWRITING | difficulty 6 ───────────────────────────────────
         Exercise(type="handwriting", difficulty=6, age_group="11-13",
-            content="Write this sentence: The beautiful rhythm of the music filled the room",
-            expected="the beautiful rhythm of the music filled the room",
-            target_words=["beautiful", "rhythm", "music"],
+            content="Write this sentence: She danced to the beautiful rhythm",
+            expected="she danced to the beautiful rhythm",
+            target_words=["beautiful", "rhythm"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=6, age_group="11-13",
+            content="Write this word: rhythm",
+            expected="rhythm",
+            target_words=["rhythm"],
             source="pre_stored"),
     ]
 
