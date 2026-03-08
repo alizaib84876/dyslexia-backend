@@ -6,7 +6,7 @@ from app.models.session import Session
 from app.models.exercise import Exercise
 from app.models.student import Student
 from app.models.word_mastery import WordMastery
-from app.schemas.session import SessionCreate, SessionSubmit, SubmitResponse, HandwritingSubmitResponse
+from app.schemas.session import SessionCreate, SessionSubmit, SubmitResponse, HandwritingSubmitResponse, TracingSubmit, TracingSubmitResponse
 from app.services.evaluator import evaluate_response
 import uuid
 from app.services.llm import generate_feedback as llm_feedback
@@ -260,4 +260,77 @@ async def submit_handwriting(
         words_updated        = target_words,
         ocr_text             = ocr_text,
         ocr_confidence       = ocr_confidence
+    )
+
+
+@router.post("/{session_id}/submit-tracing", response_model=TracingSubmitResponse)
+def submit_tracing(
+    session_id: uuid.UUID,
+    data:       TracingSubmit,
+    db:         DBSession = Depends(get_db)
+):
+    """
+    Submit a tracing exercise result.
+
+    The frontend is responsible for computing trace_score (0.0–1.0) by
+    comparing the student's drawn strokes against the reference path on canvas.
+    The backend records the result, updates word mastery and difficulty,
+    and returns LLM feedback — identical pipeline to typing and handwriting.
+
+    stroke_errors is an optional list of per-letter accuracy breakdowns:
+      [{"letter": "b", "accuracy": 0.45}, ...]
+    Send it when you have per-letter data — it improves feedback quality.
+    """
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.score is not None:
+        raise HTTPException(status_code=400, detail="Session already submitted")
+
+    # Clamp to valid range
+    trace_score   = max(0.0, min(1.0, data.trace_score))
+    stroke_errors = [e.model_dump() for e in (data.stroke_errors or [])]
+
+    # ── 1. Save session result ───────────────────────────────────────
+    session.student_response = session.expected   # student traced this word/letter
+    session.submitted_at     = datetime.now(timezone.utc)
+    session.duration_seconds = data.duration_seconds
+    session.score            = trace_score
+    session.char_errors      = stroke_errors       # reuse JSONB column for stroke data
+    session.phonetic_score   = trace_score         # not applicable — mirror score
+    db.commit()
+
+    # ── 2. Update student stats ──────────────────────────────────────
+    student = db.query(Student).filter(Student.id == session.student_id).first()
+    student.total_sessions += 1
+    student.last_active     = datetime.now(timezone.utc)
+    db.commit()
+
+    # ── 3. Update word mastery ───────────────────────────────────────
+    exercise     = db.query(Exercise).filter(Exercise.id == session.exercise_id).first()
+    target_words = exercise.target_words or []
+    was_correct  = trace_score >= 0.75
+    update_word_mastery(db, session.student_id, target_words, was_correct)
+
+    # ── 4. Adjust difficulty ─────────────────────────────────────────
+    new_level = update_difficulty(db, student)
+
+    # ── 5. LLM feedback ─────────────────────────────────────────────
+    age = student.age or 10
+    feedback = llm_feedback(
+        score         = trace_score,
+        char_errors   = stroke_errors,
+        target_words  = target_words,
+        student_age   = age,
+        exercise_type = "tracing"
+    )
+
+    return TracingSubmitResponse(
+        session_id           = session.id,
+        score                = trace_score,
+        stroke_errors        = stroke_errors,
+        feedback             = feedback,
+        new_difficulty_level = new_level,
+        words_updated        = target_words,
+        trace_score          = trace_score
     )

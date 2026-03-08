@@ -247,6 +247,90 @@ def seed():
             expected="rhythm",
             target_words=["rhythm"],
             source="pre_stored"),
+
+        # ── TRACING | difficulty 1 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=1, age_group="5-7",
+            content="Trace this letter: b",
+            expected="b",
+            target_words=["b"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=1, age_group="5-7",
+            content="Trace this letter: d",
+            expected="d",
+            target_words=["d"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=1, age_group="5-7",
+            content="Trace this word: cat",
+            expected="cat",
+            target_words=["cat"],
+            source="pre_stored"),
+
+        # ── TRACING | difficulty 2 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=2, age_group="5-7",
+            content="Trace this letter: p",
+            expected="p",
+            target_words=["p"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=2, age_group="5-7",
+            content="Trace this word: dog",
+            expected="dog",
+            target_words=["dog"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=2, age_group="8-10",
+            content="Trace this word: run",
+            expected="run",
+            target_words=["run"],
+            source="pre_stored"),
+
+        # ── TRACING | difficulty 3 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=3, age_group="8-10",
+            content="Trace this word: friend",
+            expected="friend",
+            target_words=["friend"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=3, age_group="8-10",
+            content="Trace this word: school",
+            expected="school",
+            target_words=["school"],
+            source="pre_stored"),
+
+        # ── TRACING | difficulty 4 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=4, age_group="8-10",
+            content="Trace this word: enough",
+            expected="enough",
+            target_words=["enough"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=4, age_group="8-10",
+            content="Trace this word: because",
+            expected="because",
+            target_words=["because"],
+            source="pre_stored"),
+
+        # ── TRACING | difficulty 5 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=5, age_group="11-13",
+            content="Trace this word: necessary",
+            expected="necessary",
+            target_words=["necessary"],
+            source="pre_stored"),
+
+        Exercise(type="tracing", difficulty=5, age_group="11-13",
+            content="Trace this word: beautiful",
+            expected="beautiful",
+            target_words=["beautiful"],
+            source="pre_stored"),
+
+        # ── TRACING | difficulty 6 ───────────────────────────────────
+        Exercise(type="tracing", difficulty=6, age_group="11-13",
+            content="Trace this word: rhythm",
+            expected="rhythm",
+            target_words=["rhythm"],
+            source="pre_stored"),
     ]
 
     db.add_all(exercises)

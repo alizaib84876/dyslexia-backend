@@ -43,3 +43,25 @@ class HandwritingSubmitResponse(SubmitResponse):
     """Same as SubmitResponse but includes OCR output."""
     ocr_text: str
     ocr_confidence: float
+
+
+class StrokeError(BaseModel):
+    """Per-letter tracing accuracy sent by the frontend."""
+    letter: str
+    accuracy: float  # 0.0 to 1.0
+
+
+class TracingSubmit(BaseModel):
+    trace_score: float               # 0.0–1.0 overall accuracy, computed by frontend
+    duration_seconds: Optional[int] = None
+    stroke_errors: Optional[List[StrokeError]] = []
+
+
+class TracingSubmitResponse(BaseModel):
+    session_id: uuid.UUID
+    score: float                     # same value as trace_score
+    stroke_errors: list              # echoed back from request
+    feedback: str
+    new_difficulty_level: int
+    words_updated: List[str]
+    trace_score: float               # echoed back for frontend convenience

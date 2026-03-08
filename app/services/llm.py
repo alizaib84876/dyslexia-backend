@@ -99,25 +99,29 @@ These are words the child struggles with: {words_str}
 
 Generate {count} exercises. Return ONLY a JSON array, no explanation, no markdown, no code blocks.
 Each item must have exactly these fields:
-- type: one of "word_typing", "sentence_typing", or "handwriting"
+- type: one of "word_typing", "sentence_typing", "handwriting", or "tracing"
 - content: the instruction shown to the student
 - expected: the exact correct answer in lowercase
 - target_words: array of focus words from the struggle list used in this exercise
 
 Rules:
-- For word_typing: content = "Type this word: WORD", expected = the word in lowercase
+- For word_typing: content = "Type this word: WORD", expected = the word in lowercase. WORD must be a full word, never a single letter
 - For sentence_typing: content = "Type this sentence: SENTENCE", expected = sentence in lowercase
-- For handwriting: content = "Write this sentence: SENTENCE" or "Write this word: WORD", expected = sentence/word in lowercase
+- For handwriting: content = "Write this word: WORD" or "Write this sentence: SENTENCE", expected = word or sentence in lowercase. Never a single letter
+- For tracing: content = "Trace this letter: LETTER" (single letter only) or "Trace this word: WORD" (single word only). Never a sentence
+- IMPORTANT: handwriting sentences must be at most 5 words long — they will be written by hand on a single line and OCR-scanned
+- IMPORTANT: tracing must be a single letter OR a single word — never a sentence
+- IMPORTANT: word_typing and handwriting use full words or sentences — never single letters
 - Sentences must be simple, short, and use the struggle words naturally
-- IMPORTANT: handwriting sentences must be at most 5 words long — they will be written by hand on a single line of paper and OCR-scanned as one line
-- Mix all three types roughly equally (about 1-2 of each per 5 exercises)
+- Mix all four types roughly equally (about 1-2 of each per 5 exercises)
 - All expected values must be lowercase
 
 Example format:
 [
   {{"type": "word_typing", "content": "Type this word: friend", "expected": "friend", "target_words": ["friend"]}},
   {{"type": "sentence_typing", "content": "Type this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}},
-  {{"type": "handwriting", "content": "Write this sentence: my friend is here", "expected": "my friend is here", "target_words": ["friend"]}}
+  {{"type": "handwriting", "content": "Write this sentence: my friend is here", "expected": "my friend is here", "target_words": ["friend"]}},
+  {{"type": "tracing", "content": "Trace this word: friend", "expected": "friend", "target_words": ["friend"]}}
 ]"""
 
     try:

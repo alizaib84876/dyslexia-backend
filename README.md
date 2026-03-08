@@ -91,12 +91,12 @@ docker start dyslexia-db
 
 ## Step 6 — Seed Exercise Data
 
-This inserts 41 pre-built exercises into the database:
+This inserts 54 pre-built exercises into the database:
 ```bash
 python db/seed.py
 ```
 
-You should see: Seeded 41 exercises successfully.
+You should see: Seeded 54 exercises successfully.
 
 > **Note:** Running seed again will wipe all existing sessions and exercises and re-insert them from scratch. Only run it again if you want a clean slate.
 
@@ -168,6 +168,7 @@ uvicorn app.main:app --reload
 | POST | /sessions/ | Start a session |
 | POST | /sessions/{id}/submit | Submit typed answer and get score |
 | POST | /sessions/{id}/submit-handwriting | Submit handwriting image and get score |
+| POST | /sessions/{id}/submit-tracing | Submit tracing result and get score |
 
 ---
 
@@ -175,21 +176,37 @@ uvicorn app.main:app --reload
 
 Every exercise has a `type` field. The frontend must check this to decide what UI to show:
 
-| type | What the student does | Submit endpoint |
-|------|-----------------------|-----------------|
-| `word_typing` | Types a word into a text box | `/sessions/{id}/submit` |
-| `sentence_typing` | Types a sentence into a text box | `/sessions/{id}/submit` |
-| `handwriting` | Writes on paper, you photograph it | `/sessions/{id}/submit-handwriting` |
+| type | Scope | What the student does | Submit endpoint |
+|------|-------|-----------------------|-----------------|
+| `word_typing` | word, sentence | Types a word or sentence into a text box | `/sessions/{id}/submit` |
+| `sentence_typing` | word, sentence | Types a word or sentence into a text box | `/sessions/{id}/submit` |
+| `handwriting` | word, sentence | Writes a word or sentence on paper, you photograph it | `/sessions/{id}/submit-handwriting` |
+| `tracing` | letter, word | Traces a letter or word on screen canvas | `/sessions/{id}/submit-tracing` |
 
-Both `word_typing` and `sentence_typing` use the same typed submit endpoint.
-Only `handwriting` uses the image upload endpoint.
+Both `word_typing` and `sentence_typing` use the same typed submit endpoint — they cover words and sentences.
+`handwriting` covers words and sentences — same scope as typing but answered by photograph.
+`tracing` covers letters and words only (never sentences) — answered by stroke data from the frontend canvas.
+Only `tracing` uses the `submit-tracing` endpoint — **the frontend computes the score and sends it; the backend does not evaluate strokes.**
 
-All three types go through the same adaptive selection, word mastery tracking, difficulty adjustment, and LLM feedback pipeline — handwriting is not treated differently by the backend except for how the answer is received (image vs text).
+All four types go through the same adaptive selection, word mastery tracking, difficulty adjustment, and LLM feedback pipeline.
 
 ### How handwriting exercises are created
 
 - **Pre-seeded:** 13 handwriting exercises covering difficulty levels 1–6 are already in the database from seed
-- **AI-generated:** Calling `POST /exercises/generate?student_id=X` uses the LLM to generate new exercises targeting the student's weak words — it generates a mix of all 3 types including handwriting, always as short single-line sentences (max 5 words) so OCR can read them accurately
+- **AI-generated:** Calling `POST /exercises/generate?student_id=X` uses the LLM to generate new exercises targeting the student's weak words — it generates a mix of all 4 types including handwriting and tracing
+
+### Tracing exercises in detail
+
+Tracing covers **letters and words only — never sentences.**
+
+- **Letters** (difficulty 1–2): single letters the student confuses, e.g. `b`, `d`, `p`
+- **Words** (difficulty 1–6): single words ranging from short to complex
+
+The `content` field tells you exactly what to show:
+- `"Trace this letter: b"` — show a single faint guide letter on canvas
+- `"Trace this word: friend"` — show the full word as a faint guide path
+
+The `expected` field is always a single letter or a single word (never a sentence).
 
 ---
 
@@ -206,9 +223,27 @@ All three types go through the same adaptive selection, word mastery tracking, d
 7. Repeat from step 2 for the next exercise
 8. Call GET /students/{id}/stats anytime for dashboard data
 
-### Handwriting Exercise Flow
+### Tracing Exercise Flow
 
 1. Create a student once and save the student_id
+2. Call `GET /exercises/next?student_id=X` to get an exercise
+3. Check the `type` field — if `type == "tracing"`, show the tracing canvas UI
+4. Read `content` to know what to show: `"Trace this letter: b"` or `"Trace this word: cat"`
+5. Render the letter/word as a faint dotted guide path on a canvas
+6. The student traces over it with their finger (mobile) or mouse/stylus (web)
+7. When they lift their finger/release the mouse, compute how closely their stroke matched the guide path — this gives you `trace_score` (0.0–1.0)
+8. Optionally compute per-letter accuracy as a list of `stroke_errors`
+9. Call `POST /sessions/ ` with `is_handwriting: false` to start a session
+10. Call `POST /sessions/{id}/submit-tracing` with `trace_score`, `duration_seconds`, and optional `stroke_errors`
+11. Display the score and feedback returned
+12. Repeat from step 2 for the next exercise
+
+**How to compute trace_score on the frontend:**
+- Collect the student's drawn path as an array of `(x, y)` points
+- Compare to your reference path for that letter/word using overlap percentage or path similarity
+- A simple approach: divide the reference path into N evenly-spaced checkpoints, check what % of checkpoints have a drawn point within a threshold distance (e.g. 20px)
+- That percentage is your `trace_score`
+- For per-letter: segment the reference path by letter boundaries, compute the same per segment, report as `stroke_errors`
 2. Call GET /exercises/next?student_id=X to get an exercise
 3. Show the exercise content field to the student
 4. When student submits, call POST /sessions/ to start a session — set `is_handwriting: true`
@@ -315,6 +350,43 @@ Response:
 }
 ```
 
+### Submit Tracing Result
+```
+POST /sessions/abc123.../submit-tracing
+Content-Type: application/json
+
+{
+  "trace_score": 0.82,
+  "duration_seconds": 18,
+  "stroke_errors": [
+    {"letter": "b", "accuracy": 0.65},
+    {"letter": "a", "accuracy": 0.95},
+    {"letter": "t", "accuracy": 0.88}
+  ]
+}
+
+Response:
+{
+  "session_id": "abc123-...",
+  "score": 0.82,
+  "stroke_errors": [
+    {"letter": "b", "accuracy": 0.65},
+    {"letter": "a", "accuracy": 0.95},
+    {"letter": "t", "accuracy": 0.88}
+  ],
+  "feedback": "Great tracing! The letter 'b' needs a little more practice — try to follow the guide more slowly. Keep going, you are doing brilliant!",
+  "new_difficulty_level": 1,
+  "words_updated": ["bat"],
+  "trace_score": 0.82
+}
+```
+
+> `trace_score` — the value you computed on the frontend, echoed back for confirmation.
+> `stroke_errors` — echoed back as stored. Send an empty list `[]` if you only have the overall score.
+> `words_updated` — same as other exercise types, used for mastery tracking.
+
+---
+
 ### Submit Handwriting Image
 ```
 POST /sessions/36aee7e0-.../submit-handwriting
@@ -383,6 +455,7 @@ Response:
 - `feedback` is a ready-to-display string — show it directly to the student
 - `new_difficulty_level` tells you the student's current level after this session
 - Call `GET /exercises/generate?student_id=X` when you want fresh AI-generated exercises for a student
+- `GET /students/{id}/stats` returns `accuracy_by_type` with a separate average score for each type: `word_typing`, `sentence_typing`, `handwriting`, `tracing` — use this to show per-type progress bars in your dashboard
 
 ### Handwriting-specific notes
 
@@ -392,4 +465,16 @@ Response:
 - The backend runs TrOCR OCR automatically — you never send the transcribed text, only the raw image
 - `ocr_text` in the response shows what the OCR engine read — you can display this to the student so they know what was recognised
 - The first handwriting submission after server start will be slower (~15–20 s) as the OCR model loads; all subsequent submissions are fast
-- Image quality tips for best OCR accuracy: good lighting, dark ink on white/light paper, write on a single line, keep the image reasonably cropped
+- Image quality tips: good lighting, dark ink on white/light paper, single line, image reasonably cropped
+
+### Tracing-specific notes
+
+- Set `is_handwriting: false` when calling `POST /sessions/` for a tracing exercise (it is not a handwriting session)
+- Use `POST /sessions/{id}/submit-tracing` — it accepts JSON, not an image
+- **The backend does NOT evaluate stroke accuracy.** You must compute `trace_score` (0.0–1.0) on the frontend from the student's drawn path vs the reference path, then send it
+- `stroke_errors` is optional but strongly recommended — send per-letter accuracy so the LLM can give specific feedback (e.g. "the letter b needs more practice")
+- The `expected` field tells you exactly which letter or word to draw the guide path for
+- `content` tells you the display instruction: `"Trace this letter: b"` or `"Trace this word: cat"`
+- For letters, your guide path should be a single correctly-formed lowercase letter
+- For words, your guide path should be the full word, with letter boundaries you can use to compute per-letter `stroke_errors`
+- Threshold suggestion for scoring: student's drawn point within 15–25px of the nearest guide path point counts as correct; tune this for your canvas size
