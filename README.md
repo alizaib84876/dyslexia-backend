@@ -242,6 +242,16 @@ POST /exercises/generate?student_id=b01c56ba-...&type=tracing # tracing exercise
 
 > **Partner integration tip:** In screen flows where the student has already chosen an activity type (e.g. they tapped a "Tracing" button), always pass `&type=tracing` to both endpoints so they only receive exercises of that type. In the main adaptive flow where the app chooses for them, omit `?type=` so the backend can automatically inject letter-tracing exercises when confusion patterns are detected.
 
+### Automatic exercise generation when a type has no targeted exercises
+
+The seed database covers common words but cannot anticipate every weak word a student develops. If a student is struggling with a word (e.g. "friend") but no seeded exercises for that word exist in the requested type (e.g. `word_typing`), the struggle pool for that type would normally be empty.
+
+**This gap is filled automatically.** When `?type=X` is passed and the struggle pool is empty despite the student having weak words, `/exercises/next` calls the LLM inline, generates 3 new exercises targeting those exact weak words in the requested type, saves them permanently to the database, and immediately serves one as the response. No extra API call from the frontend is needed.
+
+- The inline generation only triggers when the gap is detected — it is not called on every request
+- The generated exercises are stored permanently, so all future requests for that type hit the normal struggle pool (no LLM delay)
+- The only observable effect is a small extra latency (~1–2 s) on that one request where the gap is first detected
+
 ### How handwriting exercises are created
 
 - **Pre-seeded:** 13 handwriting exercises covering difficulty levels 1–6 are already in the database from seed

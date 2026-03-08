@@ -135,6 +135,33 @@ def get_next_exercise(
         if any(w in weak_words for w in (e.target_words or []))
     ]
 
+    # ── Auto-generate if type filter active but struggle pool is empty ─
+    # Edge case: student has weak words but no seeded exercises for those
+    # words exist in the requested type. Generate them on the fly so the
+    # student always gets targeted practice in the type they asked for.
+    if type and weak_words and not struggle_pool:
+        generated = llm_generate(
+            weak_words  = list(weak_words),
+            difficulty  = level,
+            student_age = student.age or 10,
+            count       = 3,
+            force_type  = type
+        )
+        for ex_data in generated:
+            new_ex = Exercise(
+                type         = ex_data["type"],
+                content      = ex_data["content"],
+                expected     = ex_data["expected"],
+                target_words = ex_data["target_words"],
+                difficulty   = level,
+                age_group    = "all",
+                source       = "ai_generated"
+            )
+            db.add(new_ex)
+            struggle_pool.append(new_ex)
+        if generated:
+            db.commit()
+
     # ── Cross-type letter tracing pool ───────────────────────────────
     # When the student is NOT explicitly requesting a type, inject tracing
     # exercises for letters they confuse across all exercise types.
