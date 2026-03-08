@@ -99,7 +99,7 @@ These are words the child struggles with: {words_str}
 
 Generate {count} exercises. Return ONLY a JSON array, no explanation, no markdown, no code blocks.
 Each item must have exactly these fields:
-- type: either "word_typing" or "sentence_typing"
+- type: one of "word_typing", "sentence_typing", or "handwriting"
 - content: the instruction shown to the student
 - expected: the exact correct answer in lowercase
 - target_words: array of focus words from the struggle list used in this exercise
@@ -107,14 +107,16 @@ Each item must have exactly these fields:
 Rules:
 - For word_typing: content = "Type this word: WORD", expected = the word in lowercase
 - For sentence_typing: content = "Type this sentence: SENTENCE", expected = sentence in lowercase
+- For handwriting: content = "Write this sentence: SENTENCE", expected = sentence in lowercase
 - Sentences must be simple, short, and use the struggle words naturally
-- Mix word_typing and sentence_typing
+- Mix all three types roughly equally (about 1-2 of each per 5 exercises)
 - All expected values must be lowercase
 
 Example format:
 [
   {{"type": "word_typing", "content": "Type this word: friend", "expected": "friend", "target_words": ["friend"]}},
-  {{"type": "sentence_typing", "content": "Type this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}}
+  {{"type": "sentence_typing", "content": "Type this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}},
+  {{"type": "handwriting", "content": "Write this sentence: my friend went to school", "expected": "my friend went to school", "target_words": ["friend", "school"]}}
 ]"""
 
     try:

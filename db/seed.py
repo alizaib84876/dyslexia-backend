@@ -5,11 +5,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import SessionLocal, engine, Base
 import app.models
 from app.models.exercise import Exercise
+from app.models.session import Session as SessionModel
 
 def seed():
     db = SessionLocal()
-    
-    # Clear existing exercises to avoid duplicates
+
+    # Clear sessions first (they reference exercises via FK), then exercises
+    db.query(SessionModel).delete()
+    db.commit()
     db.query(Exercise).delete()
     db.commit()
 
@@ -161,17 +164,76 @@ def seed():
             expected="the beautiful rhythm of the music filled the room",
             target_words=["beautiful", "rhythm", "music"]),
 
-        # ── HANDWRITING ──────────────────────────────────────────────────
+        # ── HANDWRITING | difficulty 1 ───────────────────────────────────
         Exercise(type="handwriting", difficulty=1, age_group="5-7",
-            content="Write this sentence: The cat sat on the mat",  
+            content="Write this sentence: The cat sat on the mat",
             expected="the cat sat on the mat",
             target_words=["cat", "sat", "mat"],
             source="pre_stored"),
 
+        Exercise(type="handwriting", difficulty=1, age_group="5-7",
+            content="Write this sentence: The dog ran fast",
+            expected="the dog ran fast",
+            target_words=["dog", "ran", "fast"],
+            source="pre_stored"),
+
+        # ── HANDWRITING | difficulty 2 ───────────────────────────────────
+        Exercise(type="handwriting", difficulty=2, age_group="5-7",
+            content="Write this sentence: I like to jump and play",
+            expected="i like to jump and play",
+            target_words=["jump", "play"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=2, age_group="8-10",
+            content="Write this sentence: The big ship set sail",
+            expected="the big ship set sail",
+            target_words=["ship", "sail"],
+            source="pre_stored"),
+
+        # ── HANDWRITING | difficulty 3 ───────────────────────────────────
         Exercise(type="handwriting", difficulty=3, age_group="8-10",
             content="Write this sentence: My friend came to school today",
             expected="my friend came to school today",
             target_words=["friend", "school", "today"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=3, age_group="8-10",
+            content="Write this sentence: Many people like to play outside",
+            expected="many people like to play outside",
+            target_words=["people", "outside"],
+            source="pre_stored"),
+
+        # ── HANDWRITING | difficulty 4 ───────────────────────────────────
+        Exercise(type="handwriting", difficulty=4, age_group="8-10",
+            content="Write this sentence: She ran fast enough to win the race",
+            expected="she ran fast enough to win the race",
+            target_words=["enough", "race"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=4, age_group="8-10",
+            content="Write this sentence: He went through the door because he was late",
+            expected="he went through the door because he was late",
+            target_words=["through", "because"],
+            source="pre_stored"),
+
+        # ── HANDWRITING | difficulty 5 ───────────────────────────────────
+        Exercise(type="handwriting", difficulty=5, age_group="11-13",
+            content="Write this sentence: It is necessary to study every day",
+            expected="it is necessary to study every day",
+            target_words=["necessary", "study"],
+            source="pre_stored"),
+
+        Exercise(type="handwriting", difficulty=5, age_group="11-13",
+            content="Write this sentence: She wore a beautiful dress to school",
+            expected="she wore a beautiful dress to school",
+            target_words=["beautiful", "school"],
+            source="pre_stored"),
+
+        # ── HANDWRITING | difficulty 6 ───────────────────────────────────
+        Exercise(type="handwriting", difficulty=6, age_group="11-13",
+            content="Write this sentence: The beautiful rhythm of the music filled the room",
+            expected="the beautiful rhythm of the music filled the room",
+            target_words=["beautiful", "rhythm", "music"],
             source="pre_stored"),
     ]
 
