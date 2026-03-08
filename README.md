@@ -91,14 +91,14 @@ docker start dyslexia-db
 
 ## Step 6 — Seed Exercise Data
 
-This inserts 30 pre-built exercises into the database:
+This inserts 41 pre-built exercises into the database:
 ```bash
 python db/seed.py
 ```
 
-You should see: Seeded 30 exercises successfully.
+You should see: Seeded 41 exercises successfully.
 
-Note: Only run this once. Running it again will clear and re-seed the database.
+> **Note:** Running seed again will wipe all existing sessions and exercises and re-insert them from scratch. Only run it again if you want a clean slate.
 
 ---
 
@@ -171,6 +171,28 @@ uvicorn app.main:app --reload
 
 ---
 
+## Exercise Types
+
+Every exercise has a `type` field. The frontend must check this to decide what UI to show:
+
+| type | What the student does | Submit endpoint |
+|------|-----------------------|-----------------|
+| `word_typing` | Types a word into a text box | `/sessions/{id}/submit` |
+| `sentence_typing` | Types a sentence into a text box | `/sessions/{id}/submit` |
+| `handwriting` | Writes on paper, you photograph it | `/sessions/{id}/submit-handwriting` |
+
+Both `word_typing` and `sentence_typing` use the same typed submit endpoint.
+Only `handwriting` uses the image upload endpoint.
+
+All three types go through the same adaptive selection, word mastery tracking, difficulty adjustment, and LLM feedback pipeline — handwriting is not treated differently by the backend except for how the answer is received (image vs text).
+
+### How handwriting exercises are created
+
+- **Pre-seeded:** 13 handwriting exercises covering difficulty levels 1–6 are already in the database from seed
+- **AI-generated:** Calling `POST /exercises/generate?student_id=X` uses the LLM to generate new exercises targeting the student's weak words — it generates a mix of all 3 types including handwriting, always as short single-line sentences (max 5 words) so OCR can read them accurately
+
+---
+
 ## Integration Flow
 
 ### Typed Exercise Flow
@@ -223,7 +245,7 @@ Response:
 ```
 GET /exercises/next?student_id=b01c56ba-...
 
-Response:
+Response (typed example):
 {
   "id": "df90b771-...",
   "type": "word_typing",
@@ -234,7 +256,21 @@ Response:
   "age_group": "5-7",
   "source": "pre_stored"
 }
+
+Response (handwriting example):
+{
+  "id": "9fa329b1-...",
+  "type": "handwriting",
+  "content": "Write this word: ran",
+  "expected": "ran",
+  "target_words": ["ran"],
+  "difficulty": 1,
+  "age_group": "5-7",
+  "source": "ai_generated"
+}
 ```
+
+> Check the `type` field first. If `type == "handwriting"`, show a camera/photo input and use the `submit-handwriting` endpoint. Otherwise show a text input and use the `submit` endpoint.
 
 ### Start Session
 ```
@@ -281,29 +317,35 @@ Response:
 
 ### Submit Handwriting Image
 ```
-POST /sessions/2164f8e8-.../submit-handwriting
+POST /sessions/36aee7e0-.../submit-handwriting
 Content-Type: multipart/form-data
 
 Fields:
   file             — JPG or PNG image of the student's handwriting (required)
   duration_seconds — how long the student took in seconds (optional, integer)
+```
 
-Response:
+Example — student was asked to write **"ran"** but wrote **"ranch"**:
+```json
 {
-  "session_id": "2164f8e8-...",
-  "score": 1.0,
-  "char_errors": [],
-  "phonetic_score": 1.0,
-  "feedback": "Excellent work! You spelled the word perfectly. Keep it up!",
-  "new_difficulty_level": 2,
-  "words_updated": ["today"],
-  "ocr_text": "today",
-  "ocr_confidence": 0.781
+  "session_id": "36aee7e0-...",
+  "score": 0.6,
+  "char_errors": [
+    {"position": 3, "expected_char": "", "actual_char": "c", "error_type": "insertion"},
+    {"position": 3, "expected_char": "", "actual_char": "h", "error_type": "insertion"}
+  ],
+  "phonetic_score": 0.6,
+  "feedback": "You did great, 60% is awesome. I'm so proud you got the core letters right. Keep practicing!",
+  "new_difficulty_level": 1,
+  "words_updated": ["ran"],
+  "ocr_text": "Ranch",
+  "ocr_confidence": 0.777
 }
 ```
 
-> `ocr_text` is the word the OCR engine read from the image.  
-> `ocr_confidence` is a 0–1 value from the model (for reference only — scoring uses the OCR text directly).
+> `ocr_text` — what the OCR engine read from the image. You can show this to the student so they know what was recognised.
+> `ocr_confidence` — model confidence 0–1, for reference only. Scoring is done purely on the OCR text vs the expected answer.
+> `char_errors` — exact character-level diff, same as typed exercises. Here `c` and `h` were extra insertions beyond "ran".
 
 ---
 
